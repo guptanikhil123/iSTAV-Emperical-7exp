@@ -1,0 +1,53 @@
+services:
+  gateway:
+    build: .
+    container_name: istav_gateway
+    env_file:
+      - .env.keys
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8001:8000"  # Changed host port to 8001 to avoid the "address already in use" conflict
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: sh -c "pip install -r requirements.txt && uvicorn gateway:app --host 0.0.0.0 --port 8000"
+    networks:
+      - swarm_subnet
+      - env_subnet
+
+  worker:
+    build: .
+    container_name: istav_worker
+    env_file:
+      - .env.keys
+      - .env
+    volumes:
+      - .:/app
+    working_dir: /app
+    environment:
+      # Worker still communicates on the internal Docker network port (8000)
+      - GATEWAY_URL=http://istav_gateway:8000
+      - PYTHONUNBUFFERED=1
+    command: sh -c "pip install -r requirements.txt && python worker.py"
+    depends_on:
+      - gateway
+    networks:
+      - swarm_subnet
+
+  mock_env:
+    image: nginx:alpine
+    container_name: istav_mock_env
+    # Overwrite the default Nginx config to accept POST requests and enable the stub_status metrics endpoint
+    command: >
+      /bin/sh -c "echo 'server { listen 80; location / { return 200 "OK"; } location /stub_status { stub_status; } }' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    networks:
+      - env_subnet
+
+networks:
+  swarm_subnet:
+    driver: bridge
+  env_subnet:
+    driver: bridge
+    internal: true
